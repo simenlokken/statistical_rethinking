@@ -1,0 +1,370 @@
+---
+title: "Geocentric Models - Exercises"
+format: html
+editor: visual
+---
+
+# Book Exercises
+
+```{r, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+
+library(rethinking)
+library(tidyverse)
+```
+
+## Easy exercises
+
+### 4E1.
+
+The first line gives the likelihood, that is that y_i is approx. normal with parameters mu and sigma. The two others are the priors for the parameters in the model. Mu is normal distributed with mean zero and SD 10, while sigma is exponentially distributed with lambda = 1.
+
+### 4E2.
+
+We only have two parameters in the posterior distribution. These are alpha (intercept) and beta (the slope). The mu is replaced with a linear function that has these parameters.
+
+### 4E3.
+
+Done by hand (Bayes' theorem).
+
+### 4E4.
+
+The second line is the linear model, that is that the each value of mu is determined by an intercept and a beta value.
+
+### 4E5.
+
+The linear model takes the place of the mu in the Gaussian distribution, and it has two parameters (alpha and beta). Together with sigma, these are the parameters of interest. So, there are three parameters. We say that mu is no longer a parameter but is defined deterministically as a function of other parameters in the model (i.e., alpha and beta).
+
+## Medium exercises
+
+### 4M1.
+
+The questions asks us to simulate observed y values from the prior. So, with the information we have, we create two vectors: mu and sigma, which have 1e3 random normal and exponential distributed values. Since y is said to be normally distributed with mu and sigma, we use our two vectors mu and sigma as parameters.
+
+```{r}
+
+n <- 1e3 # Number of simulations
+
+mu <- rnorm(n, 0, 10)
+sigma <- rexp(n, 1)
+y <- rnorm(n, mu, sigma)
+
+dens(y, col = "royalblue")
+```
+
+### 4M2.
+
+We are asked to transfer the model above into a quadratic approximation formula.
+
+```{r}
+
+quap_formula <-  alist(
+  y ~ dnorm(mu, sigma),
+  mu ~ dnorm(0, 10),
+  sigma ~ dexp(1)
+  )
+
+quap_formula
+```
+
+### 4M3.
+
+Done by hand.
+
+### 4M4.
+
+First, I assume that heights are normally distributed. That is, normal(mu, sigma). Because we are asked to do a linear regression, we have to include the linear model by deciding that the parameter mu is equal to our linear model. That is, height (y) = alpha + beta \* year.
+
+We are told that they are students, therefore I assume that their biggest growth period is over, but that heights can vary somewhat a lot. My prior for alpha is normal(140, 35), with a large range of possible values (sigma = 35).
+
+```{r}
+
+set.seed(123)
+
+alpha <- rnorm(1e3, 140, 35)
+
+dens(alpha, col = "royalblue")
+```
+
+I know that most likely students do not shrink in the three years they're recorded, so I know that the beta prior must be positive. I think my knowledge is better here, so I'll allow for a more progressive prior, a log-normal(2, 0.5), indicating a small range of possible growth per year which are all positive.
+
+```{r}
+
+set.seed(123)
+
+beta <- rlnorm(1e3, 1, 0.5)
+
+dens(beta, col = "royalblue")
+```
+
+We observe from the plot that the most likely values from beta using this prior is centered around beta = 2.5-3.5, indicating a growth of 2-3 cm/year.
+
+Lastly, we have to choose our prior for sigma. I anticipate that student heights can vary a lot around the mean at this age, so I'll choose a large, weak prior: uniform(0, 20), meaning that all sigmas between 0 and 20 are equally likely.
+
+```{r}
+
+set.seed(123)
+
+sigma <- runif(1e3, 0, 20)
+
+dens(sigma, col = "royalblue")
+```
+
+Now, that we have chosen all our priors we can do a quick simulation.
+
+```{r}
+
+set.seed(123)
+
+y <- rnorm(1e3, 140, 20)
+
+dens(y, col = "royalblue")
+```
+
+By plotting this, we observe that we have a wide (possibly too wide) but a logical range of the distribution of student height.
+
+### 4M5.
+
+Well, I already accounted for that student could not shrink in my priors, so the answer is no. However, if I had chosen a prior that accepted negative growth rate, I would definitely update my prior to account for that new knowledge.
+
+### 4M6.
+
+A variance of 64 cm is equivalent to a standard deviation of 8. My current prior for sigma allows for standard deviations all the way up to 30, so I would adjust my sigma prior to be: uniform(0, 8). This way, all values from 0 to 8 is equally likely, meaning we will never get a bigger variance than 64 cm.
+
+```{r}
+
+sigma <- runif(1e3, 0, 8)
+
+dens(sigma, col = "royalblue")
+```
+
+## Hard exercises
+
+We have to compute a model for this task, and for that we have to ask set our priors on what we believe is through for the people in the !Kung census.
+
+```{r}
+
+data(Howell1)
+
+howell_1 <- Howell1
+```
+
+Since this is the full data, there are people of all ages.
+
+```{r}
+
+howell_1 |> 
+  select(age) |> 
+  summarize(
+    mean_age = mean(age),
+    sd_age = sd(age),
+    age_range = max(age) - min(age)
+  )
+```
+
+Therefore, I set my priors to be:
+
+-   alpha: normal(150, 30). Large sigma to account for my uncertainty.
+
+-   beta: log-normal(0, 1). I assume that the growth rate is positive and quite strict around 1.
+
+-   sigma: uniform(0, 40). A weak prior with a large range to account for my uncertainty.
+
+```{r}
+
+mod <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- alpha + beta * weight,
+    alpha ~ dnorm(140, 35),
+    beta ~ dlnorm(1, 0.5),
+    sigma ~ dunif(0, 40)
+  ),
+  data = howell_1
+)
+
+mod
+```
+
+Now that we have set our priors and run our model with the !Kung data, we can use posterior distribution to estimate the individuals heights. For that, we have to use the link function and provide it with our weight data from the five individuals.
+
+```{r}
+
+# Create a vector that defines the weights to compute predictions for
+
+weight <- c(46.95, 43.72, 64.78, 32.59, 54.63)
+
+# Create the predictions from the posterior distribution with the link function
+
+pred_height <- link(mod, data = data.frame(weight))
+
+# Use apply to create a mean height for each individual
+
+expected_pos <- apply(pred_height, 2, mean)
+
+# Use apply to create high-density interval around the mean with pr = 0.89
+
+interval <- apply(pred_height, 2, HPDI, prob = 0.89)
+
+# Final result
+
+tibble(
+  individual = 1:5,
+  weight = weight,
+  expected_height = expected_pos,
+  lower = interval[1,],
+  upper = interval[2,]
+)
+```
+
+We could also solve this problem by creating the link function directly ourselves.
+
+```{r}
+
+# We need a value for weight bar (i.e., difference from the mean)
+
+howell_1 <- howell_1 |> 
+  mutate(weight_bar = weight - mean(weight))
+
+# First, we extract samples from the posteior
+
+post <- extract.samples(mod)
+
+mu_link <- function(weight) {
+  post$alpha + post$beta * (weight - weight_bar)
+}
+
+# Using the weights from the individuals
+
+weight
+
+# Using the mu_link function on all values in weight vector
+
+mu <- sapply(weight, mu_link)
+
+# Calculate the mean of each matrix column
+
+mu_mean <- apply(mu, 2, mean)
+
+# Calculate percentile interval of each matrix column
+
+mu_ci <- apply(mu, 2, PI, prob = 0.89)
+
+# Final result
+
+tibble(
+  individual = 1:5,
+  weight = weight,
+  expected_height = mu_mean,
+  lower = mu_ci[1,],
+  upper = mu_ci[2,]
+)
+```
+
+### 4H2.
+
+In this task, we must filter out all individuals that are under 18 years of age.
+
+```{r}
+
+howell_1_sub_18 <- howell_1 |> 
+  filter(age < 18)
+```
+
+Fit a linear regression model to these data using quadratic approximation.
+
+```{r}
+
+# Add a weight_bar column
+
+howell_1_sub_18 |> 
+  mutate(weight_bar = weight - mean(weight))
+
+mod <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu <- alpha + beta * (weight - weight_bar),
+    alpha ~ dnorm(100, 30),
+    beta ~ dlnorm(1, 0.5),
+    sigma ~ dunif(0, 20)
+  ),
+  data = howell_1_sub_18
+)
+```
+
+Now, we have fitted our model. We can use the precis function to get the coefficients.
+
+```{r}
+
+precis(mod)
+```
+
+The beta coefficient of the model is 1.76, i.e., the average height increases by 1.76 cm for every unit increase in weight (i.e., kg). So by multiplying with 10,
+
+```{r}
+
+1.76 * 10
+```
+
+the model predict a child to get 17.6 cm taller for a weight increase in 10 kg.
+
+### 4H3.
+
+To be able to plot the data, we must do some prep.
+
+```{r}
+
+# Create a vector of weight values
+
+weight_seq <- seq(min(howell_1_sub_18$weight), max(howell_1_sub_18), 1)
+
+# Do predictions from the posterior distribution
+
+mu <- link(mod, data = data.frame(weight = weight_seq))
+
+# Calculate mean, with a for loop this time
+
+num_cols <- ncol(mu)
+mu_mean <- numeric(num_cols)
+
+for (i in 1:num_cols) {
+  mu_mean[i] <- mean(mu[, i])
+}
+
+# High-density interval with a for loop
+
+prob = 0.89
+mu_hpdi <- matrix(NA, nrow = 2, ncol = num_cols) # Empty 2 x 154 matrix
+
+for (i in 1:num_cols) {
+  mu_hpdi[, i] <- HPDI(mu[, i], prob = prob)
+}
+
+# Simulate heights
+
+sim_height <- sim(mod, data = list(weight = weight_seq))
+
+# High-density intervals
+
+height_hpdi <- apply(sim_height, 2, HPDI, prob = 0.89)
+```
+
+Just for my own sake, the link function samples from the posterior, computes mu for each case in the data (154 cases here) and sample from the posterior distribution again. In plain English, it calculates an average weight by sampling weights for each person from the posterior distribution, and then samples averages from the distribution again. The first for loop (usually calculated with apply) calculates the mean of the mean weights we sampled with the link function (that is why we have 154 values). The second for loop calculates high-density interval for those means. The sim() function does that it says, it simulates heights from the Gaussian distribution. This function let's us take the uncertainty of the posterior and the Gaussian distribution of heights simultaneously. The last line computes the HPDI for the simulated heights, just like we did for the means in mu above.
+
+Now, we are ready to plot.
+
+```{r}
+
+plot(height ~ weight, data = howell_1_sub_18, col = "royalblue")
+lines(weight_seq, mu_mean)
+shade(mu_hpdi, weight_seq)
+shade(height_hpdi, weight_seq)
+```
+
+Not the best model for these data, obviously. A change of priors, maybe?
+
+# Exercises provided in the course
